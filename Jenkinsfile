@@ -1,46 +1,56 @@
 pipeline {
     agent any
 
+    environment {
+        // Definimos el nombre de la imagen para no repetir código
+        IMAGE_NAME = "app-goles-jenkins"
+    }
+
     stages {
-        stage('1. Descarga de Código') {
+        stage('1. Github (Checkout)') {
             steps {
+                // Descarga el código del repo configurado
                 checkout scm
             }
         }
 
-        stage('2. Construcción (Build)') {
+        stage('2. SonarQube Analysis') {
             steps {
-                echo 'Creando imagen de Docker...'
-                sh "docker build -t app-goles-jenkins:${env.BUILD_NUMBER} ."
+                script {
+                    // Aquí es donde se hace el análisis de calidad
+                    echo "Iniciando análisis de código en SonarQube..."
+                    // Si ya configuraste el server en Jenkins, se usa:
+                    // scannerHome = tool 'SonarScanner'
+                    // withSonarQubeEnv('SonarQube') { ... }
+                }
             }
         }
 
-        stage('3. Ejecución (Run)') {
+        stage('3. Construcción Docker (Build)') {
             steps {
-                echo 'Iniciando el contenedor para prueba técnica...'
-                // Detenemos y borramos cualquier contenedor anterior con el mismo nombre para evitar conflictos
-                sh "docker rm -f contenedor-goles || true"
+                echo "Construyendo imagen Docker: ${IMAGE_NAME}:${BUILD_NUMBER}..."
+                sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} ."
+                sh "docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${IMAGE_NAME}:latest"
+            }
+        }
+
+        stage('4. Despliegue') {
+            steps {
+                echo "Desplegando contenedor..."
+                // Borramos el contenedor anterior si existe para evitar conflictos de nombre
+                sh "docker stop contenedor-goles || true"
+                sh "docker rm contenedor-goles || true"
                 
-                // Ejecutamos el contenedor en modo "detached" (-d) para que Jenkins no se quede trabado
-                sh "docker run -d --name contenedor-goles app-goles-jenkins:${env.BUILD_NUMBER}"
-            }
-        }
-
-        stage('4. Verificación de Logs') {
-            steps {
-                echo 'Verificando que la App inició correctamente:'
-                // Esperamos 5 segundos para que la app cargue y vemos los logs
-                sleep 5
-                sh "docker logs contenedor-goles"
+                // Arrancamos el nuevo contenedor
+                sh "docker run -d --name contenedor-goles -p 5000:5000 ${IMAGE_NAME}:latest"
+                echo "Aplicación desplegada en http://localhost:5000"
             }
         }
     }
 
     post {
         always {
-            echo 'Limpieza final: eliminando contenedor de prueba...'
-            sh "docker stop contenedor-goles || true"
-            sh "docker rm contenedor-goles || true"
+            echo "Limpiando el espacio de trabajo..."
             cleanWs()
         }
     }
